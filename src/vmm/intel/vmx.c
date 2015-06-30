@@ -1186,6 +1186,7 @@ static int
 vmx_emulate_cr0_access(UNUSED struct vm *vm, int vcpu, uint64_t exitqual)
 {
 	uint64_t crval, regval;
+	uint64_t efer, entryctls;
 	// *pt;
 
 	/* We only handle mov to %cr0 at this time */
@@ -1198,40 +1199,30 @@ vmx_emulate_cr0_access(UNUSED struct vm *vm, int vcpu, uint64_t exitqual)
 
 	crval = regval | cr0_ones_mask;
 	crval &= ~cr0_zeros_mask;
-	// printf("cr0: v:0x%016llx 1:0x%08llx 0:0x%08llx v:0x%016llx\n",
-	// 	regval, cr0_ones_mask, cr0_zeros_mask, crval);
+#if 0
+	printf("cr0: v:0x%016llx 1:0x%08llx 0:0x%08llx v:0x%016llx\r\n",
+	    regval, cr0_ones_mask, cr0_zeros_mask, crval);
+#endif
 	vmcs_write(vcpu, VMCS_GUEST_CR0, crval);
 
-	if (regval & CR0_PG) {
-		uint64_t efer, entryctls;
+	/*
+	 * If CR0.PG is 1 and EFER.LME is 1 then EFER.LMA and
+	 * the "IA-32e mode guest" bit in VM-entry control must be
+	 * equal.
+	 */
+	efer = vmcs_read(vcpu, VMCS_GUEST_IA32_EFER);
+	entryctls = vmcs_read(vcpu, VMCS_ENTRY_CTLS);
 
-		/*
-		 * If CR0.PG is 1 and EFER.LME is 1 then EFER.LMA and
-		 * the "IA-32e mode guest" bit in VM-entry control must be
-		 * equal.
-		 */
-		efer = vmcs_read(vcpu, VMCS_GUEST_IA32_EFER);
-		if (efer & EFER_LME) {
-			efer |= EFER_LMA;
-			vmcs_write(vcpu, VMCS_GUEST_IA32_EFER, efer);
-			entryctls = vmcs_read(vcpu, VMCS_ENTRY_CTLS);
-			entryctls |= VM_ENTRY_GUEST_LMA;
-			vmcs_write(vcpu, VMCS_ENTRY_CTLS, entryctls);
-		}
-
-		// if (vmcs_read(vcpu, VMCS_GUEST_CR4) & CR4_PAE) {
-		// 	if (!(pt = (uint64_t *) vm_gpa2hva(vm,
-		// 		vmcs_read(vcpu, VMCS_GUEST_CR3), sizeof(uint64_t) * 4)))
-		// 	{
-		// 		xhyve_abort("invalid cr3\n");
-		// 	}
-
-		// 	vmcs_write(vcpu, VMCS_GUEST_PDPTE0, pt[0]);
-		// 	vmcs_write(vcpu, VMCS_GUEST_PDPTE1, pt[1]);
-		// 	vmcs_write(vcpu, VMCS_GUEST_PDPTE2, pt[2]);
-		// 	vmcs_write(vcpu, VMCS_GUEST_PDPTE3, pt[3]);
-		// }
+	if ((efer & EFER_LME) != 0 && (crval & CR0_PG) != 0) {
+		efer |= EFER_LMA;
+		entryctls |= VM_ENTRY_GUEST_LMA;
+	} else {
+		efer &= ~(uint64_t)EFER_LMA;
+		entryctls &= ~VM_ENTRY_GUEST_LMA;
 	}
+
+	vmcs_write(vcpu, VMCS_GUEST_IA32_EFER, efer);
+	vmcs_write(vcpu, VMCS_ENTRY_CTLS, entryctls);
 
 	return (HANDLED);
 }
