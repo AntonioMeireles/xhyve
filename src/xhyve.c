@@ -793,56 +793,48 @@ fail:
 static void
 remove_pidfile()
 {
-	int error;
-
 	if (pidfile == NULL)
 		return;
 
-	error = unlink(pidfile);
-	if (error < 0)
+	if (unlink(pidfile))
 		fprintf(stderr, "Failed to remove pidfile\n");
 }
 
 static int
 setup_pidfile()
 {
-	int f, error, pid;
+	int f, pid, serrno;
 	char pid_str[21];
 
 	if (pidfile == NULL)
-		return 0;
+		return (0);
 
 	pid = getpid();
 
-	error = sprintf(pid_str, "%d", pid);
-	if (error < 0)
-		goto fail;
+	if (sprintf(pid_str, "%d", pid) < 0)
+		return (errno);
 
 	f = open(pidfile, O_CREAT|O_EXCL|O_WRONLY, 0644);
 	if (f < 0)
-		goto fail;
+		return (errno);
 
-	error = atexit(remove_pidfile);
-	if (error < 0) {
+	if (atexit(remove_pidfile)) {
+		serrno = errno;
 		close(f);
 		remove_pidfile();
-		goto fail;
+		return (serrno);
 	}
 
-	if (0 > (write(f, (void*)pid_str, strlen(pid_str)))) {
+	if (write(f, (void*)pid_str, strlen(pid_str)) < 0) {
+		serrno = errno;
 		close(f);
-		goto fail;
+		return (serrno);
 	}
 
-	error = close(f);
-	if (error < 0)
-		goto fail;
+	if (close(f))
+		return (errno);
 
-	return 0;
-
-fail:
-	fprintf(stderr, "Failed to set up pidfile\n");
-	return -1;
+	return (0);
 }
 
 int
